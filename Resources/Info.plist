@@ -5,15 +5,15 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>ThemeScriptRunner</string>
+    <string>ThemeSync</string>
     <key>CFBundleIdentifier</key>
     <string>com.local.ThemeScriptRunner</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Theme Script Runner</string>
+    <string>ThemeSync</string>
     <key>CFBundleIconFile</key>
-    <string>ThemeScriptRunner</string>
+    <string>ThemeSync</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

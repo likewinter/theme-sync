@@ -131,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit Theme Script Runner", action: #selector(quitApp), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit ThemeSync", action: #selector(quitApp), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
@@ -184,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         window.center()
         window.contentViewController = hosting
-        window.title = "Theme Script Runner"
+        window.title = "ThemeSync"
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
