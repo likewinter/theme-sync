@@ -1,4 +1,4 @@
-# Theme Script Runner (macOS)
+# ThemeSync (macOS)
 
 A tiny menu bar app that runs shell scripts when macOS switches between Light and Dark mode.
 
