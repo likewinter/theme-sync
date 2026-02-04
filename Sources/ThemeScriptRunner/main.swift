@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import os.log
 
 private enum DefaultsKeys {
     static let darkPath = "scriptPathDark"
@@ -16,6 +17,7 @@ private final class ThemeWatcher: ObservableObject {
 
     private var observer: NSObjectProtocol?
     private var lastIsDark: Bool?
+    private let logger = Logger(subsystem: "com.themeScriptRunner", category: "ThemeWatcher")
 
     func start() {
         updateAndRunIfNeeded(force: true)
@@ -55,19 +57,54 @@ private final class ThemeWatcher: ObservableObject {
 
     private func runScriptIfNeeded(path: String, args: String, isDark: Bool) {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { 
+            logger.debug("No script path configured for \(isDark ? "dark" : "light") mode")
+            return 
+        }
+        
+        // Validate script path exists and is executable
+        guard FileManager.default.fileExists(atPath: trimmed) else {
+            logger.error("Script not found: \(trimmed)")
+            return
+        }
+        
+        guard FileManager.default.isExecutableFile(atPath: trimmed) else {
+            logger.error("Script is not executable: \(trimmed)")
+            return
+        }
 
         let escapedPath = shellEscape(trimmed)
         let trimmedArgs = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let command = trimmedArgs.isEmpty ? escapedPath : "\(escapedPath) \(trimmedArgs)"
+        
+        logger.info("Running \(isDark ? "dark" : "light") mode script: \(trimmed)")
+        
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-lc", command]
+        
+        // Set timeout
+        let timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { _ in
+            if process.isRunning {
+                process.terminate()
+                self.logger.warning("Script execution timed out after 30 seconds: \(trimmed)")
+            }
+        }
 
         do {
             try process.run()
+            process.waitUntilExit()
+            timer.invalidate()
+            
+            let exitCode = process.terminationStatus
+            if exitCode == 0 {
+                logger.info("Script completed successfully: \(trimmed)")
+            } else {
+                logger.error("Script failed with exit code \(exitCode): \(trimmed)")
+            }
         } catch {
-            print("ThemeScriptRunner: failed to run \(isDark ? "dark" : "light") script: \(error)")
+            timer.invalidate()
+            logger.error("Failed to run \(isDark ? "dark" : "light") script: \(error.localizedDescription)")
         }
     }
 
@@ -200,6 +237,23 @@ private struct SettingsView: View {
         }
         .padding(20)
         .frame(minWidth: 520)
+        .onAppear {
+            // Validate existing paths on settings open
+            validateScriptPaths()
+        }
+    }
+    
+    private func validateScriptPaths() {
+        for (path, name) in [(scriptPathDark, "Dark"), (scriptPathLight, "Light")] {
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            
+            if !FileManager.default.fileExists(atPath: trimmed) {
+                print("Warning: \(name) script path does not exist: \(trimmed)")
+            } else if !FileManager.default.isExecutableFile(atPath: trimmed) {
+                print("Warning: \(name) script is not executable: \(trimmed)")
+            }
+        }
     }
 
     private func pickScriptPath(current: String) -> String {
@@ -209,13 +263,30 @@ private struct SettingsView: View {
         panel.canChooseFiles = true
         panel.title = "Choose Script"
         panel.prompt = "Choose"
+        panel.allowedContentTypes = [.shellScript, .executable]
 
         if !current.isEmpty {
-            panel.directoryURL = URL(fileURLWithPath: current).deletingLastPathComponent()
+            let url = URL(fileURLWithPath: current)
+            if FileManager.default.fileExists(atPath: current) {
+                panel.directoryURL = url.deletingLastPathComponent()
+            }
         }
 
         let response = panel.runModal()
         guard response == .OK, let url = panel.url else { return current }
-        return url.path
+        
+        // Validate the selected file is executable
+        let path = url.path
+        if !FileManager.default.isExecutableFile(atPath: path) {
+            // Show alert about non-executable file
+            let alert = NSAlert()
+            alert.messageText = "File Not Executable"
+            alert.informativeText = "The selected file is not executable. Please choose an executable script or make the file executable."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return current
+        }
+        
+        return path
     }
 }
