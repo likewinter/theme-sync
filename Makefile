@@ -1,4 +1,4 @@
-APP_NAME = ThemeScriptRunner
+APP_NAME = ThemeSync
 BUILD_DIR = build
 APP_DIR = $(BUILD_DIR)/$(APP_NAME).app
 APP_BIN = $(BUILD_DIR)/$(APP_NAME)
@@ -6,7 +6,7 @@ MODULE_CACHE = $(BUILD_DIR)/ModuleCache
 MIN_TARGET = 13.0
 ICON_BASE = $(BUILD_DIR)/AppIconBase.png
 ICONSET_DIR = $(BUILD_DIR)/AppIcon.iconset
-ICON_ICNS = $(BUILD_DIR)/ThemeScriptRunner.icns
+ICON_ICNS = $(BUILD_DIR)/ThemeSync.icns
 
 SDK_PATH := $(shell xcrun --sdk macosx --show-sdk-path)
 
@@ -26,7 +26,7 @@ app: icon
 	@mkdir -p $(APP_DIR)/Contents/MacOS
 	@cp $(APP_BIN) $(APP_DIR)/Contents/MacOS/$(APP_NAME)
 	@mkdir -p $(APP_DIR)/Contents/Resources
-	@cp $(ICON_ICNS) $(APP_DIR)/Contents/Resources/ThemeScriptRunner.icns
+	@cp $(ICON_ICNS) $(APP_DIR)/Contents/Resources/ThemeSync.icns
 	@cp Resources/Info.plist $(APP_DIR)/Contents/Info.plist
 	@echo "Built $(APP_DIR)"
 
