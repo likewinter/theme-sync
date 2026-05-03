@@ -17,12 +17,12 @@ A tiny menu bar app that runs shell scripts when macOS switches between Light an
 make app
 ```
 
-This creates `build/ThemeScriptRunner.app`.
+This creates `build/ThemeSync.app`.
 
 ## Usage
 
 1. Launch the app (double-click the `.app`).
-2. Click **Settings** from the menu bar item (shows as "TS" with a half-filled circle icon).
+2. Click **Open Settings** from the menu bar item (shows as "TS" with a half-filled circle icon).
 3. Configure your scripts:
    - `Script on Dark` - path to script that runs when switching to Dark mode
    - `Args on Dark` - optional command-line arguments for the dark mode script
@@ -32,12 +32,13 @@ This creates `build/ThemeScriptRunner.app`.
 
 ## Notes
 
-- Scripts are executed directly (not through a shell), so use full paths to executables
+- Scripts are executed directly, so use full paths to executables
+- Arguments support whitespace splitting, quoted values, and backslash escaping; shell expansion and command chaining are not evaluated
 - Scripts must be executable (`chmod +x your_script.sh`)
 - Script execution times out after 30 seconds for safety
 - The app validates script paths and logs errors if scripts are missing or not executable
 - The app is a menu bar accessory and will not show in the Dock
-- Minimum supported macOS version is 11.0 (requires SwiftUI and @AppStorage)
+- Minimum supported macOS version is 13.0
 
 ## Troubleshooting
 

@@ -18,6 +18,8 @@ private final class ThemeWatcher: ObservableObject {
     private var observer: NSObjectProtocol?
     private var lastIsDark: Bool?
     private let logger = Logger(subsystem: "com.themeScriptRunner", category: "ThemeWatcher")
+    private let runner = ScriptRunner()
+    private let executionQueue = DispatchQueue(label: "ThemeSync.ScriptRunner", qos: .utility)
 
     func start() {
         updateAndRunIfNeeded(force: true)
@@ -73,44 +75,27 @@ private final class ThemeWatcher: ObservableObject {
             return
         }
 
-        let escapedPath = shellEscape(trimmed)
         let trimmedArgs = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        let command = trimmedArgs.isEmpty ? escapedPath : "\(escapedPath) \(trimmedArgs)"
-        
-        logger.info("Running \(isDark ? "dark" : "light") mode script: \(trimmed)")
-        
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", command]
-        
-        // Set timeout
-        let timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { _ in
-            if process.isRunning {
-                process.terminate()
-                self.logger.warning("Script execution timed out after 30 seconds: \(trimmed)")
+
+        executionQueue.async { [weak self] in
+            guard let self else { return }
+
+            self.logger.info("Running \(isDark ? "dark" : "light") mode script: \(trimmed)")
+
+            do {
+                let result = try self.runner.run(path: trimmed, arguments: trimmedArgs)
+
+                if result.timedOut {
+                    self.logger.warning("Script execution timed out after 30 seconds: \(trimmed)")
+                } else if result.exitCode == 0 {
+                    self.logger.info("Script completed successfully: \(trimmed)")
+                } else {
+                    self.logger.error("Script failed with exit code \(result.exitCode): \(trimmed)")
+                }
+            } catch {
+                self.logger.error("Failed to run \(isDark ? "dark" : "light") script: \(error.localizedDescription)")
             }
         }
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            timer.invalidate()
-            
-            let exitCode = process.terminationStatus
-            if exitCode == 0 {
-                logger.info("Script completed successfully: \(trimmed)")
-            } else {
-                logger.error("Script failed with exit code \(exitCode): \(trimmed)")
-            }
-        } catch {
-            timer.invalidate()
-            logger.error("Failed to run \(isDark ? "dark" : "light") script: \(error.localizedDescription)")
-        }
-    }
-
-    private func shellEscape(_ input: String) -> String {
-        let escaped = input.replacingOccurrences(of: "'", with: "'\\''")
-        return "'\(escaped)'"
     }
 }
 
