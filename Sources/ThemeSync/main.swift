@@ -7,29 +7,54 @@ private enum DefaultsKeys {
     static let lightPath = "scriptPathLight"
     static let darkArgs = "scriptArgsDark"
     static let lightArgs = "scriptArgsLight"
+    static let lastIsDark = "lastIsDark"
 }
 
 private final class ThemeWatcher: ObservableObject {
-    @AppStorage(DefaultsKeys.darkPath) private var scriptPathDark: String = ""
-    @AppStorage(DefaultsKeys.lightPath) private var scriptPathLight: String = ""
-    @AppStorage(DefaultsKeys.darkArgs) private var scriptArgsDark: String = ""
-    @AppStorage(DefaultsKeys.lightArgs) private var scriptArgsLight: String = ""
-
     private var observer: NSObjectProtocol?
-    private var lastIsDark: Bool?
     private let logger = Logger(subsystem: "com.themeScriptRunner", category: "ThemeWatcher")
     private let runner = ScriptRunner()
     private let executionQueue = DispatchQueue(label: "ThemeSync.ScriptRunner", qos: .utility)
 
+    private var scriptPathDark: String {
+        UserDefaults.standard.string(forKey: DefaultsKeys.darkPath) ?? ""
+    }
+    private var scriptPathLight: String {
+        UserDefaults.standard.string(forKey: DefaultsKeys.lightPath) ?? ""
+    }
+    private var scriptArgsDark: String {
+        UserDefaults.standard.string(forKey: DefaultsKeys.darkArgs) ?? ""
+    }
+    private var scriptArgsLight: String {
+        UserDefaults.standard.string(forKey: DefaultsKeys.lightArgs) ?? ""
+    }
+    private var lastIsDark: Bool? {
+        get {
+            guard UserDefaults.standard.object(forKey: DefaultsKeys.lastIsDark) != nil else { return nil }
+            return UserDefaults.standard.bool(forKey: DefaultsKeys.lastIsDark)
+        }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: DefaultsKeys.lastIsDark)
+            } else {
+                UserDefaults.standard.removeObject(forKey: DefaultsKeys.lastIsDark)
+            }
+        }
+    }
+
     func start() {
-        updateAndRunIfNeeded(force: true)
+        let isDark = isDarkMode()
+        if lastIsDark != isDark {
+            lastIsDark = isDark
+            runForMode(isDark: isDark)
+        }
 
         observer = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.updateAndRunIfNeeded(force: false)
+            self?.updateAndRunIfNeeded()
         }
     }
 
@@ -39,13 +64,15 @@ private final class ThemeWatcher: ObservableObject {
         }
     }
 
-    private func updateAndRunIfNeeded(force: Bool) {
+    private func updateAndRunIfNeeded() {
         let isDark = isDarkMode()
-        if !force, let lastIsDark = lastIsDark, lastIsDark == isDark {
-            return
-        }
+        if lastIsDark == isDark { return }
 
         lastIsDark = isDark
+        runForMode(isDark: isDark)
+    }
+
+    private func runForMode(isDark: Bool) {
         let path = isDark ? scriptPathDark : scriptPathLight
         let args = isDark ? scriptArgsDark : scriptArgsLight
         runScriptIfNeeded(path: path, args: args, isDark: isDark)
@@ -89,6 +116,8 @@ private final class ThemeWatcher: ObservableObject {
                     self.logger.warning("Script execution timed out after 30 seconds: \(trimmed)")
                 } else if result.exitCode == 0 {
                     self.logger.info("Script completed successfully: \(trimmed)")
+                } else if result.terminatedBySignal {
+                    self.logger.error("Script killed by signal \(result.exitCode): \(trimmed)")
                 } else {
                     self.logger.error("Script failed with exit code \(result.exitCode): \(trimmed)")
                 }
@@ -162,7 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hosting = NSHostingController(rootView: SettingsView())
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 180),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 180),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -199,6 +228,8 @@ private struct SettingsView: View {
     @AppStorage(DefaultsKeys.darkArgs) private var scriptArgsDark: String = ""
     @AppStorage(DefaultsKeys.lightArgs) private var scriptArgsLight: String = ""
 
+    private let logger = Logger(subsystem: "com.themeScriptRunner", category: "Settings")
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
@@ -234,9 +265,9 @@ private struct SettingsView: View {
             guard !trimmed.isEmpty else { continue }
             
             if !FileManager.default.fileExists(atPath: trimmed) {
-                print("Warning: \(name) script path does not exist: \(trimmed)")
+                logger.warning("\(name) script path does not exist: \(trimmed)")
             } else if !FileManager.default.isExecutableFile(atPath: trimmed) {
-                print("Warning: \(name) script is not executable: \(trimmed)")
+                logger.warning("\(name) script is not executable: \(trimmed)")
             }
         }
     }

@@ -4,9 +4,10 @@ import Foundation
 struct ScriptExecutionResult {
     let exitCode: Int32
     let timedOut: Bool
+    let terminatedBySignal: Bool
 }
 
-enum ScriptRunnerError: LocalizedError {
+enum ScriptRunnerError: LocalizedError, Equatable {
     case unbalancedQuote
 
     var errorDescription: String? {
@@ -113,7 +114,8 @@ struct ScriptRunner {
 
         return ScriptExecutionResult(
             exitCode: process.terminationStatus,
-            timedOut: timedOut
+            timedOut: timedOut,
+            terminatedBySignal: process.terminationReason == .uncaughtSignal
         )
     }
 }

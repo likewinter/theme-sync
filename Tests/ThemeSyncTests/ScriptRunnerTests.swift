@@ -77,6 +77,37 @@ func testArgumentParserHonorsQuotedValues() throws {
     try assertEqual(arguments, ["one", "two words", "three words", "escaped space"], "parsed arguments")
 }
 
+func testArgumentParserRejectsUnbalancedQuotes() throws {
+    var threw = false
+    do {
+        _ = try CommandLineArgumentParser.parse("hello 'world")
+    } catch let error as ScriptRunnerError {
+        threw = true
+        try assertTrue(error == .unbalancedQuote, "expected unbalancedQuote error")
+    }
+    try assertTrue(threw, "unbalanced single quote should throw")
+
+    threw = false
+    do {
+        _ = try CommandLineArgumentParser.parse("hello \"world")
+    } catch let error as ScriptRunnerError {
+        threw = true
+        try assertTrue(error == .unbalancedQuote, "expected unbalancedQuote error")
+    }
+    try assertTrue(threw, "unbalanced double quote should throw")
+}
+
+func testArgumentParserHandlesEmptyAndWhitespaceInput() throws {
+    try assertEqual(try CommandLineArgumentParser.parse(""), [], "empty string")
+    try assertEqual(try CommandLineArgumentParser.parse("   "), [], "whitespace only")
+    try assertEqual(try CommandLineArgumentParser.parse("  \t\n  "), [], "mixed whitespace")
+}
+
+func testArgumentParserHandlesEmptyQuotedStrings() throws {
+    try assertEqual(try CommandLineArgumentParser.parse("'' \"\""), ["", ""], "empty quoted strings")
+    try assertEqual(try CommandLineArgumentParser.parse("a '' b"), ["a", "", "b"], "empty quoted string between args")
+}
+
 func makeTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
         .appendingPathComponent("ThemeSyncTests-\(UUID().uuidString)", isDirectory: true)
@@ -95,6 +126,9 @@ struct TestRunner {
             ("testShellMetacharactersArePassedAsArguments", testShellMetacharactersArePassedAsArguments),
             ("testRunnerTerminatesProcessAfterTimeout", testRunnerTerminatesProcessAfterTimeout),
             ("testArgumentParserHonorsQuotedValues", testArgumentParserHonorsQuotedValues),
+            ("testArgumentParserRejectsUnbalancedQuotes", testArgumentParserRejectsUnbalancedQuotes),
+            ("testArgumentParserHandlesEmptyAndWhitespaceInput", testArgumentParserHandlesEmptyAndWhitespaceInput),
+            ("testArgumentParserHandlesEmptyQuotedStrings", testArgumentParserHandlesEmptyQuotedStrings),
         ]
 
         for (name, test) in tests {
