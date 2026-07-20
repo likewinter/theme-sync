@@ -89,10 +89,16 @@ struct ScriptRunner {
         self.timeout = timeout
     }
 
-    func run(path: String, arguments: String) throws -> ScriptExecutionResult {
+    func run(path: String, arguments: String, environment: [String: String] = [:]) throws -> ScriptExecutionResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = try CommandLineArgumentParser.parse(arguments)
+
+        if !environment.isEmpty {
+            var env = ProcessInfo.processInfo.environment
+            env.merge(environment) { _, new in new }
+            process.environment = env
+        }
 
         let completion = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in

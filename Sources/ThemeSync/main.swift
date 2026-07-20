@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 import os.log
 
 private enum DefaultsKeys {
@@ -15,6 +16,8 @@ private final class ThemeWatcher: ObservableObject {
     private let logger = Logger(subsystem: "com.themeScriptRunner", category: "ThemeWatcher")
     private let runner = ScriptRunner()
     private let executionQueue = DispatchQueue(label: "ThemeSync.ScriptRunner", qos: .utility)
+
+    var onModeChange: ((Bool) -> Void)?
 
     private var scriptPathDark: String {
         UserDefaults.standard.string(forKey: DefaultsKeys.darkPath) ?? ""
@@ -44,6 +47,7 @@ private final class ThemeWatcher: ObservableObject {
 
     func start() {
         let isDark = isDarkMode()
+        onModeChange?(isDark)
         if lastIsDark != isDark {
             lastIsDark = isDark
             runForMode(isDark: isDark)
@@ -66,13 +70,14 @@ private final class ThemeWatcher: ObservableObject {
 
     private func updateAndRunIfNeeded() {
         let isDark = isDarkMode()
+        onModeChange?(isDark)
         if lastIsDark == isDark { return }
 
         lastIsDark = isDark
         runForMode(isDark: isDark)
     }
 
-    private func runForMode(isDark: Bool) {
+    func runForMode(isDark: Bool) {
         let path = isDark ? scriptPathDark : scriptPathLight
         let args = isDark ? scriptArgsDark : scriptArgsLight
         runScriptIfNeeded(path: path, args: args, isDark: isDark)
@@ -110,7 +115,11 @@ private final class ThemeWatcher: ObservableObject {
             self.logger.info("Running \(isDark ? "dark" : "light") mode script: \(trimmed)")
 
             do {
-                let result = try self.runner.run(path: trimmed, arguments: trimmedArgs)
+                let result = try self.runner.run(
+                    path: trimmed,
+                    arguments: trimmedArgs,
+                    environment: ["THEME_MODE": isDark ? "dark" : "light"]
+                )
 
                 if result.timedOut {
                     self.logger.warning("Script execution timed out after 30 seconds: \(trimmed)")
@@ -137,6 +146,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.setActivationPolicy(.accessory)
         setupMainMenu()
         setupMenuBar()
+        watcher.onModeChange = { [weak self] isDark in
+            self?.updateIcon(isDark: isDark)
+        }
         watcher.start()
     }
 
@@ -168,7 +180,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
             button.title = "TS"
-            button.image = NSImage(systemSymbolName: "circle.lefthalf.filled", accessibilityDescription: "Theme Scripts")
             button.imagePosition = .imageLeft
         }
         item.isVisible = true
@@ -176,10 +187,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Settings", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Run Dark Script", action: #selector(runDarkScript), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Run Light Script", action: #selector(runLightScript), keyEquivalent: ""))
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
 
         item.menu = menu
         statusItem = item
+    }
+
+    private func updateIcon(isDark: Bool) {
+        let symbolName = isDark ? "moon.fill" : "sun.max.fill"
+        statusItem?.button?.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: isDark ? "Dark mode" : "Light mode")
+    }
+
+    @objc private func runDarkScript() {
+        watcher.runForMode(isDark: true)
+    }
+
+    @objc private func runLightScript() {
+        watcher.runForMode(isDark: false)
     }
 
     @objc private func openSettings() {
@@ -250,6 +277,21 @@ private struct SettingsView: View {
                 Text("Args on Light")
                 TextField("", text: $scriptArgsLight)
             }
+            Divider()
+            Toggle("Launch at Login", isOn: Binding(
+                get: { SMAppService.mainApp.status == .enabled },
+                set: { enabled in
+                    do {
+                        if enabled {
+                            try SMAppService.mainApp.register()
+                        } else {
+                            try SMAppService.mainApp.unregister()
+                        }
+                    } catch {
+                        logger.error("Failed to update launch at login: \(error.localizedDescription)")
+                    }
+                }
+            ))
         }
         .padding(20)
         .frame(minWidth: 520)

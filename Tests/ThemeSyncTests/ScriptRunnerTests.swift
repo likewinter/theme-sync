@@ -108,6 +108,26 @@ func testArgumentParserHandlesEmptyQuotedStrings() throws {
     try assertEqual(try CommandLineArgumentParser.parse("a '' b"), ["a", "", "b"], "empty quoted string between args")
 }
 
+func testRunnerPassesEnvironmentVariables() throws {
+    let tempDir = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let script = tempDir.appendingPathComponent("env.sh")
+    let output = tempDir.appendingPathComponent("env.txt")
+
+    try """
+    #!/bin/sh
+    printf '%s' "$THEME_MODE" > "\(output.path)"
+    """.write(to: script, atomically: true, encoding: .utf8)
+    try makeExecutable(script)
+
+    let runner = ScriptRunner(timeout: 2)
+    let result = try runner.run(path: script.path, arguments: "", environment: ["THEME_MODE": "dark"])
+
+    try assertEqual(result.exitCode, 0, "script exit code")
+    try assertEqual(try String(contentsOf: output, encoding: .utf8), "dark", "THEME_MODE env var")
+}
+
 func makeTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
         .appendingPathComponent("ThemeSyncTests-\(UUID().uuidString)", isDirectory: true)
@@ -129,6 +149,7 @@ struct TestRunner {
             ("testArgumentParserRejectsUnbalancedQuotes", testArgumentParserRejectsUnbalancedQuotes),
             ("testArgumentParserHandlesEmptyAndWhitespaceInput", testArgumentParserHandlesEmptyAndWhitespaceInput),
             ("testArgumentParserHandlesEmptyQuotedStrings", testArgumentParserHandlesEmptyQuotedStrings),
+            ("testRunnerPassesEnvironmentVariables", testRunnerPassesEnvironmentVariables),
         ]
 
         for (name, test) in tests {
