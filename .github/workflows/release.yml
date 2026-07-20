@@ -13,6 +13,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Build app
         run: make app
@@ -28,18 +30,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log --oneline --no-decorate "$PREV_TAG"..HEAD | sed 's/^[a-f0-9]* /- /')
+          else
+            CHANGELOG=$(git log --oneline --no-decorate | sed 's/^[a-f0-9]* /- /')
+          fi
+
+          {
+            echo "**ThemeSync** — a tiny macOS menu bar app that runs shell scripts when macOS switches between Light and Dark mode."
+            echo ""
+            echo "## Install"
+            echo "1. Download \`ThemeSync.app.zip\` below"
+            echo "2. Unzip and drag \`ThemeSync.app\` to \`/Applications\`"
+            echo "3. Right-click → **Open** on first launch (ad-hoc signed, no Apple Developer ID)"
+            echo ""
+            echo "Requires macOS 13.0+ (Apple Silicon)."
+            echo ""
+            echo "## What's Changed"
+            echo "$CHANGELOG"
+          } > release_notes.md
+
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
-            --generate-notes \
-            --notes "$(cat <<'EOF'
-          **ThemeSync** — a tiny macOS menu bar app that runs shell scripts when macOS switches between Light and Dark mode.
-
-          ## Install
-          1. Download `ThemeSync.app.zip` below
-          2. Unzip and drag `ThemeSync.app` to `/Applications`
-          3. Right-click → **Open** on first launch (ad-hoc signed, no Apple Developer ID)
-
-          Requires macOS 13.0+ (Apple Silicon).
-          EOF
-          )" \
+            --notes-file release_notes.md \
             build/ThemeSync.app.zip
