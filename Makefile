@@ -10,7 +10,7 @@ ICON_ICNS = $(BUILD_DIR)/ThemeSync.icns
 
 SDK_PATH := $(shell xcrun --sdk macosx --show-sdk-path)
 
-.PHONY: app clean icon install test
+.PHONY: app clean icon install test release
 
 app: icon
 	@mkdir -p $(BUILD_DIR) $(MODULE_CACHE)
@@ -51,3 +51,8 @@ test:
 
 clean:
 	@rm -rf $(BUILD_DIR)
+
+release:
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make release VERSION=1.1.0"; exit 1; fi
+	@git tag v$(VERSION)
+	@git push origin v$(VERSION)
