@@ -16,7 +16,7 @@ A tiny menu bar app that runs shell scripts when macOS switches between Light an
 
 Download the latest `ThemeSync.app.zip` from [GitHub Releases](https://github.com/likewinter/theme-sync/releases), unzip, and drag `ThemeSync.app` to `/Applications`.
 
-> The app is unsigned. On first launch, right-click → **Open** to bypass Gatekeeper.
+> The app is ad-hoc signed (no Apple Developer ID). On first launch, right-click → **Open** to bypass Gatekeeper.
 
 ## Build from source
 

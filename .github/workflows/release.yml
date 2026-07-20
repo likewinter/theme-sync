@@ -17,6 +17,9 @@ jobs:
       - name: Build app
         run: make app
 
+      - name: Sign app (ad-hoc)
+        run: codesign --force --deep --sign - --options runtime build/ThemeSync.app
+
       - name: Create zip
         run: zip -r ThemeSync.app.zip ThemeSync.app
         working-directory: build
