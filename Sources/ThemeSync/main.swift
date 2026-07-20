@@ -277,6 +277,9 @@ private struct SettingsView: View {
                 Text("Args on Light")
                 TextField("", text: $scriptArgsLight)
             }
+            Text("Scripts receive THEME_MODE=dark or THEME_MODE=light as an environment variable.")
+                .font(.caption)
+                .foregroundColor(.secondary)
             Divider()
             Toggle("Launch at Login", isOn: Binding(
                 get: { SMAppService.mainApp.status == .enabled },
