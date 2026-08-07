@@ -27,7 +27,7 @@ Download the latest `ThemeSync.app.zip` from [GitHub Releases](https://github.co
 make app
 ```
 
-This creates `build/ThemeSync.app`.
+This creates `build/ThemeSync.app`. The bundle is stamped with the latest git tag's version (`0.0.0` if no tags exist); override with `make app VERSION=x.y.z`.
 
 ## Usage
 

@@ -16,14 +16,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Stamp version into Info.plist
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Resources/Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Resources/Info.plist
-
       - name: Build app
-        run: make app
+        run: make app VERSION="${GITHUB_REF_NAME#v}"
 
       - name: Sign app (ad-hoc)
         run: codesign --force --deep --sign - --options runtime build/ThemeSync.app

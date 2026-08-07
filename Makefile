@@ -8,6 +8,9 @@ ICON_BASE = $(BUILD_DIR)/AppIconBase.png
 ICONSET_DIR = $(BUILD_DIR)/AppIcon.iconset
 ICON_ICNS = $(BUILD_DIR)/ThemeSync.icns
 
+GIT_VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+VERSION ?= $(if $(GIT_VERSION),$(GIT_VERSION),0.0.0)
+
 SDK_PATH := $(shell xcrun --sdk macosx --show-sdk-path)
 
 .PHONY: app clean icon install test release
@@ -29,7 +32,9 @@ app: icon
 	@mkdir -p $(APP_DIR)/Contents/Resources
 	@cp $(ICON_ICNS) $(APP_DIR)/Contents/Resources/ThemeSync.icns
 	@cp Resources/Info.plist $(APP_DIR)/Contents/Info.plist
-	@echo "Built $(APP_DIR)"
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" $(APP_DIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" $(APP_DIR)/Contents/Info.plist
+	@echo "Built $(APP_DIR) (version $(VERSION))"
 
 icon:
 	@mkdir -p $(BUILD_DIR) $(ICONSET_DIR)
