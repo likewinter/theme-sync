@@ -13,7 +13,7 @@ private enum DefaultsKeys {
 
 private final class ThemeWatcher: ObservableObject {
     private var observer: NSObjectProtocol?
-    private let logger = Logger(subsystem: "com.themeScriptRunner", category: "ThemeWatcher")
+    private let logger = Logger(subsystem: "com.likewinter.theme-sync", category: "ThemeWatcher")
     private let runner = ScriptRunner()
     private let executionQueue = DispatchQueue(label: "ThemeSync.ScriptRunner", qos: .utility)
 
@@ -167,7 +167,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let watcher = ThemeWatcher()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApplication.shared.setActivationPolicy(.accessory)
         setupMainMenu()
         setupMenuBar()
         watcher.onModeChange = { [weak self] isDark in
@@ -279,23 +278,29 @@ private struct SettingsView: View {
     @AppStorage(DefaultsKeys.darkArgs) private var scriptArgsDark: String = ""
     @AppStorage(DefaultsKeys.lightArgs) private var scriptArgsLight: String = ""
 
-    private let logger = Logger(subsystem: "com.themeScriptRunner", category: "Settings")
+    private let logger = Logger(subsystem: "com.likewinter.theme-sync", category: "Settings")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Text("Script on Dark")
-                TextField("", text: $scriptPathDark)
-                Button("Choose…") { scriptPathDark = pickScriptPath(current: scriptPathDark) }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text("Script on Dark")
+                    TextField("", text: $scriptPathDark)
+                    Button("Choose…") { scriptPathDark = pickScriptPath(current: scriptPathDark) }
+                }
+                pathWarning(for: scriptPathDark)
             }
             HStack(spacing: 8) {
                 Text("Args on Dark")
                 TextField("", text: $scriptArgsDark)
             }
-            HStack(spacing: 8) {
-                Text("Script on Light")
-                TextField("", text: $scriptPathLight)
-                Button("Choose…") { scriptPathLight = pickScriptPath(current: scriptPathLight) }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text("Script on Light")
+                    TextField("", text: $scriptPathLight)
+                    Button("Choose…") { scriptPathLight = pickScriptPath(current: scriptPathLight) }
+                }
+                pathWarning(for: scriptPathLight)
             }
             HStack(spacing: 8) {
                 Text("Args on Light")
@@ -322,23 +327,28 @@ private struct SettingsView: View {
         }
         .padding(20)
         .frame(minWidth: 520)
-        .onAppear {
-            // Validate existing paths on settings open
-            validateScriptPaths()
+    }
+
+    @ViewBuilder
+    private func pathWarning(for path: String) -> some View {
+        if let problem = pathProblem(path) {
+            Label(problem, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundColor(.orange)
         }
     }
-    
-    private func validateScriptPaths() {
-        for (path, name) in [(scriptPathDark, "Dark"), (scriptPathLight, "Light")] {
-            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            
-            if !FileManager.default.fileExists(atPath: trimmed) {
-                logger.warning("\(name) script path does not exist: \(trimmed)")
-            } else if !FileManager.default.isExecutableFile(atPath: trimmed) {
-                logger.warning("\(name) script is not executable: \(trimmed)")
-            }
+
+    private func pathProblem(_ path: String) -> String? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if !FileManager.default.fileExists(atPath: trimmed) {
+            return "File not found"
         }
+        if !FileManager.default.isExecutableFile(atPath: trimmed) {
+            return "File is not executable"
+        }
+        return nil
     }
 
     private func pickScriptPath(current: String) -> String {

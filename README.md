@@ -63,6 +63,6 @@ This tags `v1.1.0` and pushes the tag, which triggers a GitHub Actions workflow 
 
 ## Troubleshooting
 
-- Check Console.app for log messages from "com.themeScriptRunner" if scripts aren't running
+- Check Console.app for log messages from "com.likewinter.theme-sync" if scripts aren't running
 - Ensure your scripts have execute permissions: `chmod +x /path/to/your/script`
 - Test your scripts manually first to ensure they work correctly
