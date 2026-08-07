@@ -71,6 +71,46 @@ func testRunnerTerminatesProcessAfterTimeout() throws {
     try assertFalse(FileManager.default.fileExists(atPath: marker.path), "timed-out script kept running")
 }
 
+func testTimeoutKillsDescendantProcesses() throws {
+    let tempDir = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let script = tempDir.appendingPathComponent("spawner.sh")
+    let writes = tempDir.appendingPathComponent("writes.txt")
+
+    try """
+    #!/bin/sh
+    (
+        i=0
+        while [ "$i" -lt 10000 ]; do
+            echo "$i" >> "\(writes.path)"
+            i=$((i + 1))
+            sleep 0.02
+        done
+    ) &
+    sleep 10
+    """.write(to: script, atomically: true, encoding: .utf8)
+    try makeExecutable(script)
+
+    let runner = ScriptRunner(timeout: 0.5)
+    let result = try runner.run(path: script.path, arguments: "")
+
+    try assertTrue(result.timedOut, "script should time out")
+
+    func lineCount() throws -> Int {
+        guard FileManager.default.fileExists(atPath: writes.path) else { return 0 }
+        let content = try String(contentsOf: writes, encoding: .utf8)
+        return content.isEmpty ? 0 : content.components(separatedBy: "\n").filter { !$0.isEmpty }.count
+    }
+
+    // Give a surviving descendant the chance to keep writing, then verify it stopped.
+    Thread.sleep(forTimeInterval: 0.3)
+    let countAfterKill = try lineCount()
+    try assertTrue(countAfterKill > 0, "descendant should have written before the kill")
+    Thread.sleep(forTimeInterval: 0.3)
+    try assertEqual(try lineCount(), countAfterKill, "descendant process kept writing after timeout kill")
+}
+
 func testArgumentParserHonorsQuotedValues() throws {
     let arguments = try CommandLineArgumentParser.parse("one 'two words' \"three words\" escaped\\ space")
 
@@ -145,6 +185,7 @@ struct TestRunner {
         let tests: [(String, () throws -> Void)] = [
             ("testShellMetacharactersArePassedAsArguments", testShellMetacharactersArePassedAsArguments),
             ("testRunnerTerminatesProcessAfterTimeout", testRunnerTerminatesProcessAfterTimeout),
+            ("testTimeoutKillsDescendantProcesses", testTimeoutKillsDescendantProcesses),
             ("testArgumentParserHonorsQuotedValues", testArgumentParserHonorsQuotedValues),
             ("testArgumentParserRejectsUnbalancedQuotes", testArgumentParserRejectsUnbalancedQuotes),
             ("testArgumentParserHandlesEmptyAndWhitespaceInput", testArgumentParserHandlesEmptyAndWhitespaceInput),

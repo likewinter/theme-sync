@@ -56,7 +56,7 @@ This tags `v1.1.0` and pushes the tag, which triggers a GitHub Actions workflow 
 - Scripts receive `THEME_MODE=dark` or `THEME_MODE=light` as an environment variable
 - Arguments support whitespace splitting, quoted values, and backslash escaping; shell expansion and command chaining are not evaluated
 - Scripts must be executable (`chmod +x your_script.sh`)
-- Script execution times out after 30 seconds for safety
+- Script execution times out after 30 seconds for safety; the timeout terminates the script and any processes it started
 - The app validates script paths and logs errors if scripts are missing or not executable
 - The app is a menu bar accessory and will not show in the Dock
 - Minimum supported macOS version is 13.0 (Apple Silicon)

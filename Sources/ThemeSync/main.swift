@@ -17,6 +17,12 @@ private final class ThemeWatcher: ObservableObject {
     private let runner = ScriptRunner()
     private let executionQueue = DispatchQueue(label: "ThemeSync.ScriptRunner", qos: .utility)
 
+    // Coalescing state: requests arriving while a script runs collapse to the
+    // latest mode, which executes once the current run finishes.
+    private let stateLock = NSLock()
+    private var pendingMode: Bool?
+    private var isExecuting = false
+
     var onModeChange: ((Bool) -> Void)?
 
     private var scriptPathDark: String {
@@ -78,9 +84,31 @@ private final class ThemeWatcher: ObservableObject {
     }
 
     func runForMode(isDark: Bool) {
-        let path = isDark ? scriptPathDark : scriptPathLight
-        let args = isDark ? scriptArgsDark : scriptArgsLight
-        runScriptIfNeeded(path: path, args: args, isDark: isDark)
+        stateLock.lock()
+        pendingMode = isDark
+        let shouldStart = !isExecuting
+        if shouldStart { isExecuting = true }
+        stateLock.unlock()
+
+        guard shouldStart else { return }
+
+        executionQueue.async { [weak self] in
+            guard let self else { return }
+            while let isDark = self.takePendingMode() {
+                self.executeScript(isDark: isDark)
+            }
+        }
+    }
+
+    private func takePendingMode() -> Bool? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard let isDark = pendingMode else {
+            isExecuting = false
+            return nil
+        }
+        pendingMode = nil
+        return isDark
     }
 
     private func isDarkMode() -> Bool {
@@ -89,50 +117,46 @@ private final class ThemeWatcher: ObservableObject {
         return match == .darkAqua
     }
 
-    private func runScriptIfNeeded(path: String, args: String, isDark: Bool) {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { 
+    private func executeScript(isDark: Bool) {
+        let path = (isDark ? scriptPathDark : scriptPathLight).trimmingCharacters(in: .whitespacesAndNewlines)
+        let args = (isDark ? scriptArgsDark : scriptArgsLight).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !path.isEmpty else {
             logger.debug("No script path configured for \(isDark ? "dark" : "light") mode")
-            return 
+            return
         }
-        
+
         // Validate script path exists and is executable
-        guard FileManager.default.fileExists(atPath: trimmed) else {
-            logger.error("Script not found: \(trimmed)")
-            return
-        }
-        
-        guard FileManager.default.isExecutableFile(atPath: trimmed) else {
-            logger.error("Script is not executable: \(trimmed)")
+        guard FileManager.default.fileExists(atPath: path) else {
+            logger.error("Script not found: \(path)")
             return
         }
 
-        let trimmedArgs = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard FileManager.default.isExecutableFile(atPath: path) else {
+            logger.error("Script is not executable: \(path)")
+            return
+        }
 
-        executionQueue.async { [weak self] in
-            guard let self else { return }
+        logger.info("Running \(isDark ? "dark" : "light") mode script: \(path)")
 
-            self.logger.info("Running \(isDark ? "dark" : "light") mode script: \(trimmed)")
+        do {
+            let result = try runner.run(
+                path: path,
+                arguments: args,
+                environment: ["THEME_MODE": isDark ? "dark" : "light"]
+            )
 
-            do {
-                let result = try self.runner.run(
-                    path: trimmed,
-                    arguments: trimmedArgs,
-                    environment: ["THEME_MODE": isDark ? "dark" : "light"]
-                )
-
-                if result.timedOut {
-                    self.logger.warning("Script execution timed out after 30 seconds: \(trimmed)")
-                } else if result.exitCode == 0 {
-                    self.logger.info("Script completed successfully: \(trimmed)")
-                } else if result.terminatedBySignal {
-                    self.logger.error("Script killed by signal \(result.exitCode): \(trimmed)")
-                } else {
-                    self.logger.error("Script failed with exit code \(result.exitCode): \(trimmed)")
-                }
-            } catch {
-                self.logger.error("Failed to run \(isDark ? "dark" : "light") script: \(error.localizedDescription)")
+            if result.timedOut {
+                logger.warning("Script execution timed out after 30 seconds: \(path)")
+            } else if result.exitCode == 0 {
+                logger.info("Script completed successfully: \(path)")
+            } else if result.terminatedBySignal {
+                logger.error("Script killed by signal \(result.exitCode): \(path)")
+            } else {
+                logger.error("Script failed with exit code \(result.exitCode): \(path)")
             }
+        } catch {
+            logger.error("Failed to run \(isDark ? "dark" : "light") script: \(error.localizedDescription)")
         }
     }
 }

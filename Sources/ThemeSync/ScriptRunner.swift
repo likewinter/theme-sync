@@ -107,13 +107,22 @@ struct ScriptRunner {
 
         try process.run()
 
+        // Best-effort: give the child its own process group so the timeout
+        // signals below also reach processes the script spawned.
+        setpgid(process.processIdentifier, process.processIdentifier)
+
         let deadline = DispatchTime.now() + timeout
         let timedOut = completion.wait(timeout: deadline) == .timedOut
         if timedOut {
-            process.terminate()
+            let pid = process.processIdentifier
+            // The group kill only works when setpgid above won the race;
+            // signal the child directly as a fallback.
+            kill(-pid, SIGTERM)
+            kill(pid, SIGTERM)
 
             if completion.wait(timeout: .now() + 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
+                kill(-pid, SIGKILL)
+                kill(pid, SIGKILL)
                 completion.wait()
             }
         }
