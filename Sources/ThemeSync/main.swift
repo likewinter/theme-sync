@@ -147,7 +147,7 @@ private final class ThemeWatcher: ObservableObject {
             )
 
             if result.timedOut {
-                logger.warning("Script execution timed out after 30 seconds: \(path)")
+                logger.warning("Script execution timed out after \(Int(self.runner.timeout)) seconds: \(path)")
             } else if result.exitCode == 0 {
                 logger.info("Script completed successfully: \(path)")
             } else if result.terminatedBySignal {
