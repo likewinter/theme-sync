@@ -26,6 +26,7 @@ app: icon
 		-framework AppKit \
 		-o $(APP_BIN) \
 		Sources/$(APP_NAME)/ScriptRunner.swift \
+		Sources/$(APP_NAME)/ScriptRunReport.swift \
 		Sources/$(APP_NAME)/ThemeScriptScheduler.swift \
 		Sources/$(APP_NAME)/main.swift
 	@mkdir -p $(APP_DIR)/Contents/MacOS
@@ -52,8 +53,10 @@ test:
 		-module-cache-path $(MODULE_CACHE) \
 		-o $(BUILD_DIR)/ThemeSyncTests \
 		Sources/$(APP_NAME)/ScriptRunner.swift \
+		Sources/$(APP_NAME)/ScriptRunReport.swift \
 		Sources/$(APP_NAME)/ThemeScriptScheduler.swift \
 		Tests/ThemeSyncTests/ThemeScriptSchedulerTests.swift \
+		Tests/ThemeSyncTests/ScriptRunReportTests.swift \
 		Tests/ThemeSyncTests/ScriptRunnerTests.swift
 	@$(BUILD_DIR)/ThemeSyncTests
 

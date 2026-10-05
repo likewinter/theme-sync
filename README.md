@@ -12,6 +12,9 @@ A tiny menu bar app that runs shell scripts when macOS switches between Light an
 - Recovers unfinished theme changes on the next launch
 - Menu bar icon reflects the current mode (☀️ / 🌙)
 - "Run Dark Script" / "Run Light Script" menu items for quick testing
+- Test buttons in Settings with inline progress, success, and error feedback
+- Last-run status in the menu, with details and script output available on click
+- Opens Settings on first launch when no scripts are configured
 - Optional Launch at Login
 - 30-second execution timeout for safety
 - Script validation (checks if file exists and is executable)
@@ -32,7 +35,7 @@ This creates `build/ThemeSync.app`. The bundle is stamped with the latest git ta
 
 ## Usage
 
-1. Launch the app (double-click the `.app`).
+1. Launch the app (double-click the `.app`). Settings opens automatically on the first launch if no scripts are configured.
 2. Click the menu bar item (shows as "TS" with a sun or moon icon).
 3. Click **Open Settings** to configure your scripts:
    - `Script on Dark` - path to script that runs when switching to Dark mode
@@ -41,7 +44,8 @@ This creates `build/ThemeSync.app`. The bundle is stamped with the latest git ta
    - `Args on Light` - optional command-line arguments for the light mode script
    - `Launch at Login` - automatically start ThemeSync when you log in
 4. Use the **Choose…** buttons to browse for script files.
-5. Use **Run Dark Script** / **Run Light Script** from the menu to test without toggling system appearance.
+5. Click **Test** beside either script to run it without toggling system appearance. The result appears below its arguments. You can also use **Run Dark Script** / **Run Light Script** from the menu.
+6. Click the menu's **Last run** entry to inspect the result, time, script path, arguments, and output. Only the most recent execution is saved.
 
 ## Releasing
 
@@ -56,6 +60,8 @@ An explicit `VERSION` is required. This tags `v1.1.0` and pushes the tag, which 
 - Scripts are executed directly, so use full paths to executables
 - Scripts receive `THEME_MODE=dark` or `THEME_MODE=light` as an environment variable
 - Arguments support whitespace splitting, quoted values, and backslash escaping; shell expansion and command chaining are not evaluated
+- Script output includes stdout and stderr; details retain the last 64 KiB and indicate when earlier output was omitted
+- Tests use the path and arguments configured when you click **Test**; editing those fields hides a result for the old configuration
 - Scripts must be executable (`chmod +x your_script.sh`)
 - If the app quits with an automatic theme change queued or running, it runs the current mode's script again on the next launch
 - Script execution times out after 30 seconds for safety; the timeout terminates the script and any processes it started
@@ -65,6 +71,15 @@ An explicit `VERSION` is required. This tags `v1.1.0` and pushes the tag, which 
 
 ## Troubleshooting
 
+- Check **Last run** in the menu for the latest result and script output
 - Check Console.app for log messages from "com.likewinter.theme-sync" if scripts aren't running
 - Ensure your scripts have execute permissions: `chmod +x /path/to/your/script`
 - Test your scripts manually first to ensure they work correctly
+
+## Tests
+
+```bash
+make test
+```
+
+GitHub Actions runs the tests and builds the app on pushes to `main` and pull requests. Release builds also run the tests before packaging the app.

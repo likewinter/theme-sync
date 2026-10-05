@@ -280,6 +280,16 @@ struct TestRunner {
             ("testSchedulerCoalescesLatestThemeAndIgnoresDuplicates", testSchedulerCoalescesLatestThemeAndIgnoresDuplicates),
             ("testSchedulerManualRunsPreserveQueuedThemeChanges", testSchedulerManualRunsPreserveQueuedThemeChanges),
             ("testSchedulerManualRunDoesNotAcknowledgeInterruptedThemeChange", testSchedulerManualRunDoesNotAcknowledgeInterruptedThemeChange),
+            ("testRunnerCapturesStandardOutputAndError", testRunnerCapturesStandardOutputAndError),
+            ("testRunnerBoundsVerboseOutputAndKeepsItsTail", testRunnerBoundsVerboseOutputAndKeepsItsTail),
+            ("testRunnerDoesNotWaitForBackgroundChildOutputToClose", testRunnerDoesNotWaitForBackgroundChildOutputToClose),
+            ("testContinuousOutputDoesNotPreventTimeout", testContinuousOutputDoesNotPreventTimeout),
+            ("testConfiguredRunPreservesArgumentsAndThemeEnvironment", testConfiguredRunPreservesArgumentsAndThemeEnvironment),
+            ("testInvalidArgumentsAreReportedWithoutExecutingScript", testInvalidArgumentsAreReportedWithoutExecutingScript),
+            ("testExecutionReportsDescribeFailuresAndTimeouts", testExecutionReportsDescribeFailuresAndTimeouts),
+            ("testExecutionReportCanBeRestoredWithoutLosingDetails", testExecutionReportCanBeRestoredWithoutLosingDetails),
+            ("testConfigurationRejectsDirectoriesAndNonExecutableFiles", testConfigurationRejectsDirectoriesAndNonExecutableFiles),
+            ("testSchedulerUsesManualConfigurationCapturedWhenRequested", testSchedulerUsesManualConfigurationCapturedWhenRequested),
         ]
 
         for (name, test) in tests {

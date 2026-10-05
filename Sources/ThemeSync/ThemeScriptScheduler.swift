@@ -7,12 +7,15 @@ enum DefaultsKeys {
     static let lightArgs = "scriptArgsLight"
     static let lastIsDark = "lastIsDark"
     static let pendingThemeChange = "pendingThemeChange"
+    static let lastRun = "lastScriptRun"
+    static let hasLaunched = "hasLaunched"
 }
 
 final class ThemeScriptScheduler {
     private struct Request {
         let isDark: Bool
         let themeChangeID: String?
+        var manualExecution: (() -> Void)? = nil
     }
 
     private let defaults: UserDefaults
@@ -35,9 +38,9 @@ final class ThemeScriptScheduler {
         requestTheme(isDark: isDark, recoverPending: false)
     }
 
-    func runManually(isDark: Bool) {
+    func runManually(isDark: Bool, execute: (() -> Void)? = nil) {
         lock.lock()
-        enqueue(Request(isDark: isDark, themeChangeID: nil))
+        enqueue(Request(isDark: isDark, themeChangeID: nil, manualExecution: execute))
         let shouldStart = beginExecutionIfNeeded()
         lock.unlock()
         if shouldStart { drainQueue() }
@@ -81,7 +84,11 @@ final class ThemeScriptScheduler {
         queue.async { [weak self] in
             guard let self else { return }
             while let request = self.takeNextRequest() {
-                self.execute(request.isDark)
+                if let manualExecution = request.manualExecution {
+                    manualExecution()
+                } else {
+                    self.execute(request.isDark)
+                }
                 self.complete(request)
             }
         }

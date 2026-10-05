@@ -4,6 +4,13 @@ import ServiceManagement
 import os.log
 
 private final class ThemeWatcher: ObservableObject {
+    @Published private(set) var lastRun: ScriptRunReport? = {
+        guard let data = UserDefaults.standard.data(forKey: DefaultsKeys.lastRun) else { return nil }
+        return try? JSONDecoder().decode(ScriptRunReport.self, from: data)
+    }()
+    @Published private(set) var testStates: [Bool: ScriptTestState] = [:]
+    @Published private(set) var isTesting = false
+
     private var observer: NSObjectProtocol?
     private let logger = Logger(subsystem: "com.likewinter.theme-sync", category: "ThemeWatcher")
     private let runner = ScriptRunner()
@@ -12,19 +19,6 @@ private final class ThemeWatcher: ObservableObject {
     }
 
     var onModeChange: ((Bool) -> Void)?
-
-    private var scriptPathDark: String {
-        UserDefaults.standard.string(forKey: DefaultsKeys.darkPath) ?? ""
-    }
-    private var scriptPathLight: String {
-        UserDefaults.standard.string(forKey: DefaultsKeys.lightPath) ?? ""
-    }
-    private var scriptArgsDark: String {
-        UserDefaults.standard.string(forKey: DefaultsKeys.darkArgs) ?? ""
-    }
-    private var scriptArgsLight: String {
-        UserDefaults.standard.string(forKey: DefaultsKeys.lightArgs) ?? ""
-    }
 
     func start() {
         let isDark = isDarkMode()
@@ -53,7 +47,16 @@ private final class ThemeWatcher: ObservableObject {
     }
 
     func runForMode(isDark: Bool) {
-        scheduler.runManually(isDark: isDark)
+        guard !isTesting else { return }
+        let configuration = ScriptConfiguration(isDark: isDark)
+        isTesting = true
+        testStates[isDark] = .queued
+        scheduler.runManually(isDark: isDark) { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async { self.testStates[isDark] = .running }
+            let report = self.runner.run(configuration: configuration, isDark: isDark)
+            self.publish(report, isTest: true)
+        }
     }
 
     private func isDarkMode() -> Bool {
@@ -63,53 +66,43 @@ private final class ThemeWatcher: ObservableObject {
     }
 
     private func executeScript(isDark: Bool) {
-        let path = (isDark ? scriptPathDark : scriptPathLight).trimmingCharacters(in: .whitespacesAndNewlines)
-        let args = isDark ? scriptArgsDark : scriptArgsLight
-
-        guard !path.isEmpty else {
+        let configuration = ScriptConfiguration(isDark: isDark)
+        guard !configuration.path.isEmpty else {
             logger.debug("No script path configured for \(isDark ? "dark" : "light") mode")
             return
         }
 
-        // Validate script path exists and is executable
-        guard FileManager.default.fileExists(atPath: path) else {
-            logger.error("Script not found: \(path)")
-            return
+        logger.info("Running \(isDark ? "dark" : "light") mode script: \(configuration.path)")
+        publish(runner.run(configuration: configuration, isDark: isDark), isTest: false)
+    }
+
+    private func publish(_ report: ScriptRunReport, isTest: Bool) {
+        if report.succeeded {
+            logger.info("Script completed: \(report.path)")
+        } else {
+            logger.error("Script did not succeed: \(report.summary)")
         }
-
-        guard FileManager.default.isExecutableFile(atPath: path) else {
-            logger.error("Script is not executable: \(path)")
-            return
+        if let data = try? JSONEncoder().encode(report) {
+            UserDefaults.standard.set(data, forKey: DefaultsKeys.lastRun)
         }
-
-        logger.info("Running \(isDark ? "dark" : "light") mode script: \(path)")
-
-        do {
-            let result = try runner.run(
-                path: path,
-                arguments: args,
-                environment: ["THEME_MODE": isDark ? "dark" : "light"]
-            )
-
-            if result.timedOut {
-                logger.warning("Script execution timed out after \(Int(self.runner.timeout)) seconds: \(path)")
-            } else if result.exitCode == 0 {
-                logger.info("Script completed successfully: \(path)")
-            } else if result.terminatedBySignal {
-                logger.error("Script killed by signal \(result.exitCode): \(path)")
-            } else {
-                logger.error("Script failed with exit code \(result.exitCode): \(path)")
+        DispatchQueue.main.async {
+            self.lastRun = report
+            if isTest {
+                self.testStates[report.isDark] = .finished(report)
+                self.isTesting = false
             }
-        } catch {
-            logger.error("Failed to run \(isDark ? "dark" : "light") script: \(error.localizedDescription)")
         }
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
     private let watcher = ThemeWatcher()
+    private var lastRunItem: NSMenuItem?
+    private var darkRunItem: NSMenuItem?
+    private var lightRunItem: NSMenuItem?
+    private var detailsPopover: NSPopover?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
@@ -118,6 +111,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.updateIcon(isDark: isDark)
         }
         watcher.start()
+        let defaults = UserDefaults.standard
+        let isFirstLaunch = !defaults.bool(forKey: DefaultsKeys.hasLaunched)
+        defaults.set(true, forKey: DefaultsKeys.hasLaunched)
+        if isFirstLaunch && ScriptConfiguration(isDark: true).path.isEmpty && ScriptConfiguration(isDark: false).path.isEmpty {
+            openSettings()
+        }
     }
 
     private func setupMainMenu() {
@@ -153,15 +152,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.isVisible = true
 
         let menu = NSMenu()
+        menu.delegate = self
         menu.addItem(NSMenuItem(title: "Open Settings", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Run Dark Script", action: #selector(runDarkScript), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Run Light Script", action: #selector(runLightScript), keyEquivalent: ""))
+        let lastRun = NSMenuItem(title: "No script has run yet", action: #selector(showLastRun), keyEquivalent: "")
+        lastRun.target = self
+        menu.addItem(lastRun)
+        lastRunItem = lastRun
+        let darkRun = NSMenuItem(title: "Run Dark Script", action: #selector(runDarkScript), keyEquivalent: "")
+        let lightRun = NSMenuItem(title: "Run Light Script", action: #selector(runLightScript), keyEquivalent: "")
+        darkRun.target = self
+        lightRun.target = self
+        menu.addItem(darkRun)
+        menu.addItem(lightRun)
+        darkRunItem = darkRun
+        lightRunItem = lightRun
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
 
         item.menu = menu
         statusItem = item
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        lastRunItem?.title = watcher.lastRun?.menuTitle ?? "No script has run yet"
+    }
+
+    @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem === lastRunItem { return watcher.lastRun != nil }
+        if menuItem === darkRunItem || menuItem === lightRunItem { return !watcher.isTesting }
+        return true
+    }
+
+    @objc private func showLastRun() {
+        guard let report = watcher.lastRun, let button = statusItem?.button else { return }
+        detailsPopover?.close()
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(rootView: RunDetailsView(report: report))
+        popover.contentSize = NSSize(width: 460, height: 280)
+        detailsPopover = popover
+        // Let the menu finish closing before presenting the transient popover.
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
+        }
     }
 
     private func updateIcon(isDark: Bool) {
@@ -184,9 +220,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let hosting = NSHostingController(rootView: SettingsView())
+        let hosting = NSHostingController(rootView: SettingsView(watcher: watcher))
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 180),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 280),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -205,6 +241,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+private struct RunDetailsView: View {
+    let report: ScriptRunReport
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(report.modeName) script · \(report.status)")
+                .font(.headline)
+            ScrollView {
+                Text(report.details)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 220)
+        }
+        .padding(16)
+        .frame(width: 460)
+    }
+}
+
 @main
 struct MainApp {
     static let delegate = AppDelegate()
@@ -218,10 +274,14 @@ struct MainApp {
 }
 
 private struct SettingsView: View {
+    @ObservedObject var watcher: ThemeWatcher
     @AppStorage(DefaultsKeys.darkPath) private var scriptPathDark: String = ""
     @AppStorage(DefaultsKeys.lightPath) private var scriptPathLight: String = ""
     @AppStorage(DefaultsKeys.darkArgs) private var scriptArgsDark: String = ""
     @AppStorage(DefaultsKeys.lightArgs) private var scriptArgsLight: String = ""
+    @State private var loginEnabled = false
+    @State private var loginError: String?
+    @State private var loginNeedsApproval = false
 
     private let logger = Logger(subsystem: "com.likewinter.theme-sync", category: "Settings")
 
@@ -229,71 +289,124 @@ private struct SettingsView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text("Script on Dark")
+                    Text("Script on Dark").frame(width: 100, alignment: .leading)
                     TextField("", text: $scriptPathDark)
+                        .accessibilityLabel("Dark script path")
                     Button("Choose…") { scriptPathDark = pickScriptPath(current: scriptPathDark) }
+                    Button("Test") { watcher.runForMode(isDark: true) }
+                        .disabled(watcher.isTesting || scriptPathDark.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .help("Run the dark script without changing system appearance.")
+                        .accessibilityLabel("Test dark script")
                 }
-                pathWarning(for: scriptPathDark)
+                HStack(spacing: 8) {
+                    Text("Args on Dark").frame(width: 100, alignment: .leading)
+                    TextField("", text: $scriptArgsDark)
+                        .accessibilityLabel("Dark script arguments")
+                }
+                scriptFeedback(isDark: true)
             }
-            HStack(spacing: 8) {
-                Text("Args on Dark")
-                TextField("", text: $scriptArgsDark)
-            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Dark mode script")
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text("Script on Light")
+                    Text("Script on Light").frame(width: 100, alignment: .leading)
                     TextField("", text: $scriptPathLight)
+                        .accessibilityLabel("Light script path")
                     Button("Choose…") { scriptPathLight = pickScriptPath(current: scriptPathLight) }
+                    Button("Test") { watcher.runForMode(isDark: false) }
+                        .disabled(watcher.isTesting || scriptPathLight.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .help("Run the light script without changing system appearance.")
+                        .accessibilityLabel("Test light script")
                 }
-                pathWarning(for: scriptPathLight)
+                HStack(spacing: 8) {
+                    Text("Args on Light").frame(width: 100, alignment: .leading)
+                    TextField("", text: $scriptArgsLight)
+                        .accessibilityLabel("Light script arguments")
+                }
+                scriptFeedback(isDark: false)
             }
-            HStack(spacing: 8) {
-                Text("Args on Light")
-                TextField("", text: $scriptArgsLight)
-            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Light mode script")
             Text("Scripts receive THEME_MODE=dark or THEME_MODE=light as an environment variable.")
                 .font(.caption)
                 .foregroundColor(.secondary)
             Divider()
             Toggle("Launch at Login", isOn: Binding(
-                get: { SMAppService.mainApp.status == .enabled },
-                set: { enabled in
-                    do {
-                        if enabled {
-                            try SMAppService.mainApp.register()
-                        } else {
-                            try SMAppService.mainApp.unregister()
-                        }
-                    } catch {
-                        logger.error("Failed to update launch at login: \(error.localizedDescription)")
-                    }
-                }
+                get: { loginEnabled },
+                set: updateLaunchAtLogin
             ))
+            if let loginError {
+                Label(loginError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if loginNeedsApproval {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Allow ThemeSync in System Settings to enable launch at login.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Button("Open System Settings") { SMAppService.openSystemSettingsLoginItems() }
+                        .buttonStyle(.link)
+                }
+            }
         }
         .padding(20)
-        .frame(minWidth: 520)
+        .frame(width: 580)
+        .onAppear(perform: refreshLoginStatus)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshLoginStatus()
+        }
     }
 
     @ViewBuilder
-    private func pathWarning(for path: String) -> some View {
-        if let problem = pathProblem(path) {
-            Label(problem, systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundColor(.orange)
+    private func scriptFeedback(isDark: Bool) -> some View {
+        let configuration = ScriptConfiguration(
+            path: isDark ? scriptPathDark : scriptPathLight,
+            arguments: isDark ? scriptArgsDark : scriptArgsLight
+        )
+        VStack(alignment: .leading, spacing: 0) {
+            if let state = watcher.testStates[isDark] {
+                switch state {
+                case .queued:
+                    Text("Waiting for the current script to finish…").foregroundColor(.secondary)
+                case .running:
+                    Text("Testing \(isDark ? "dark" : "light") script…").foregroundColor(.secondary)
+                case .finished(let report):
+                    if report.path == configuration.path && report.arguments == configuration.arguments {
+                        Text(report.summary).foregroundColor(report.succeeded ? .secondary : .red)
+                            .textSelection(.enabled)
+                    } else if !configuration.path.isEmpty, let problem = configuration.problem {
+                        Text(problem).foregroundColor(.red)
+                    }
+                }
+            } else if !configuration.path.isEmpty, let problem = configuration.problem {
+                Text(problem).foregroundColor(.red)
+            }
         }
+        .font(.caption)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.leading, 108)
     }
 
-    private func pathProblem(_ path: String) -> String? {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+    private func refreshLoginStatus() {
+        let status = SMAppService.mainApp.status
+        loginEnabled = status == .enabled || status == .requiresApproval
+        loginNeedsApproval = status == .requiresApproval
+    }
 
-        if !FileManager.default.fileExists(atPath: trimmed) {
-            return "File not found"
+    private func updateLaunchAtLogin(_ enabled: Bool) {
+        loginError = nil
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            loginError = "Could not update launch at login: \(error.localizedDescription)"
+            logger.error("Failed to update launch at login: \(error.localizedDescription)")
         }
-        if !FileManager.default.isExecutableFile(atPath: trimmed) {
-            return "File is not executable"
-        }
-        return nil
+        refreshLoginStatus()
     }
 
     private func pickScriptPath(current: String) -> String {

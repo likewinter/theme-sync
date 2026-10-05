@@ -16,6 +16,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Run tests
+        run: make test
+
       - name: Build app
         run: make app VERSION="${GITHUB_REF_NAME#v}"
 
