@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct TestFailure: Error, CustomStringConvertible {
@@ -117,6 +118,84 @@ func testArgumentParserHonorsQuotedValues() throws {
     try assertEqual(arguments, ["one", "two words", "three words", "escaped space"], "parsed arguments")
 }
 
+func testTimeoutKillsDescendantsThatIgnoreSIGTERM() throws {
+    let tempDir = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let script = tempDir.appendingPathComponent("parent.sh")
+    let child = tempDir.appendingPathComponent("child.sh")
+    let writes = tempDir.appendingPathComponent("writes.txt")
+    let childPID = tempDir.appendingPathComponent("child.pid")
+    defer {
+        // Clean up even when a regression makes the assertion fail.
+        if let text = try? String(contentsOf: childPID, encoding: .utf8),
+           let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 {
+            kill(pid, SIGKILL)
+        }
+    }
+
+    try """
+    #!/bin/sh
+    trap '' TERM
+    echo $$ > "\(childPID.path)"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        printf x >> "\(writes.path)"
+        i=$((i + 1))
+        sleep 0.02
+    done
+    """.write(to: child, atomically: true, encoding: .utf8)
+    try """
+    #!/bin/sh
+    /bin/sh "\(child.path)" &
+    while [ ! -f "\(writes.path)" ]; do sleep 0.01; done
+    exec /bin/sleep 10
+    """.write(to: script, atomically: true, encoding: .utf8)
+    try makeExecutable(script)
+
+    let result = try ScriptRunner(timeout: 0.5).run(path: script.path, arguments: "")
+    try assertTrue(result.timedOut, "parent should time out")
+    try assertEqual(result.exitCode, SIGTERM, "parent should exit before SIGKILL escalation")
+    Thread.sleep(forTimeInterval: 0.1)
+    let count = try Data(contentsOf: writes).count
+    try assertTrue(count > 0, "descendant should have started writing")
+    Thread.sleep(forTimeInterval: 0.3)
+    try assertEqual(try Data(contentsOf: writes).count, count, "SIGTERM-resistant descendant survived the timeout")
+}
+
+func testTimeoutEscalatesWhenParentIgnoresSIGTERM() throws {
+    let tempDir = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+    let script = tempDir.appendingPathComponent("ignore-term.sh")
+    try """
+    #!/bin/sh
+    trap '' TERM
+    exec /bin/sleep 10
+    """.write(to: script, atomically: true, encoding: .utf8)
+    try makeExecutable(script)
+
+    let result = try ScriptRunner(timeout: 0.5).run(path: script.path, arguments: "")
+    try assertTrue(result.timedOut, "parent should time out")
+    try assertTrue(result.terminatedBySignal, "parent should be killed")
+    try assertEqual(result.exitCode, SIGKILL, "parent should be forcefully terminated")
+}
+
+func testRunnerPreservesEscapedTrailingWhitespace() throws {
+    let tempDir = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+    let script = tempDir.appendingPathComponent("record.sh")
+    let output = tempDir.appendingPathComponent("argument.txt")
+    try """
+    #!/bin/sh
+    printf '%s' "$1" > "\(output.path)"
+    """.write(to: script, atomically: true, encoding: .utf8)
+    try makeExecutable(script)
+
+    let result = try ScriptRunner(timeout: 2).run(path: script.path, arguments: "value\\ ")
+    try assertEqual(result.exitCode, 0, "argument script should succeed")
+    try assertEqual(try String(contentsOf: output, encoding: .utf8), "value ", "escaped trailing space must reach the script")
+}
+
 func testArgumentParserRejectsUnbalancedQuotes() throws {
     var threw = false
     do {
@@ -186,11 +265,21 @@ struct TestRunner {
             ("testShellMetacharactersArePassedAsArguments", testShellMetacharactersArePassedAsArguments),
             ("testRunnerTerminatesProcessAfterTimeout", testRunnerTerminatesProcessAfterTimeout),
             ("testTimeoutKillsDescendantProcesses", testTimeoutKillsDescendantProcesses),
+            ("testTimeoutKillsDescendantsThatIgnoreSIGTERM", testTimeoutKillsDescendantsThatIgnoreSIGTERM),
+            ("testTimeoutEscalatesWhenParentIgnoresSIGTERM", testTimeoutEscalatesWhenParentIgnoresSIGTERM),
+            ("testRunnerPreservesEscapedTrailingWhitespace", testRunnerPreservesEscapedTrailingWhitespace),
             ("testArgumentParserHonorsQuotedValues", testArgumentParserHonorsQuotedValues),
             ("testArgumentParserRejectsUnbalancedQuotes", testArgumentParserRejectsUnbalancedQuotes),
             ("testArgumentParserHandlesEmptyAndWhitespaceInput", testArgumentParserHandlesEmptyAndWhitespaceInput),
             ("testArgumentParserHandlesEmptyQuotedStrings", testArgumentParserHandlesEmptyQuotedStrings),
             ("testRunnerPassesEnvironmentVariables", testRunnerPassesEnvironmentVariables),
+            ("testSchedulerSkipsUnchangedThemeAfterCompletedRun", testSchedulerSkipsUnchangedThemeAfterCompletedRun),
+            ("testSchedulerRecoversQueuedThemeAfterRestart", testSchedulerRecoversQueuedThemeAfterRestart),
+            ("testSchedulerRecoversInProgressThemeAfterRestart", testSchedulerRecoversInProgressThemeAfterRestart),
+            ("testSchedulerKeepsNewerThemePendingWhenOlderRunCompletes", testSchedulerKeepsNewerThemePendingWhenOlderRunCompletes),
+            ("testSchedulerCoalescesLatestThemeAndIgnoresDuplicates", testSchedulerCoalescesLatestThemeAndIgnoresDuplicates),
+            ("testSchedulerManualRunsPreserveQueuedThemeChanges", testSchedulerManualRunsPreserveQueuedThemeChanges),
+            ("testSchedulerManualRunDoesNotAcknowledgeInterruptedThemeChange", testSchedulerManualRunDoesNotAcknowledgeInterruptedThemeChange),
         ]
 
         for (name, test) in tests {

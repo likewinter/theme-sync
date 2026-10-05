@@ -3,25 +3,13 @@ import AppKit
 import ServiceManagement
 import os.log
 
-private enum DefaultsKeys {
-    static let darkPath = "scriptPathDark"
-    static let lightPath = "scriptPathLight"
-    static let darkArgs = "scriptArgsDark"
-    static let lightArgs = "scriptArgsLight"
-    static let lastIsDark = "lastIsDark"
-}
-
 private final class ThemeWatcher: ObservableObject {
     private var observer: NSObjectProtocol?
     private let logger = Logger(subsystem: "com.likewinter.theme-sync", category: "ThemeWatcher")
     private let runner = ScriptRunner()
-    private let executionQueue = DispatchQueue(label: "ThemeSync.ScriptRunner", qos: .utility)
-
-    // Coalescing state: requests arriving while a script runs collapse to the
-    // latest mode, which executes once the current run finishes.
-    private let stateLock = NSLock()
-    private var pendingMode: Bool?
-    private var isExecuting = false
+    private lazy var scheduler = ThemeScriptScheduler { [weak self] isDark in
+        self?.executeScript(isDark: isDark)
+    }
 
     var onModeChange: ((Bool) -> Void)?
 
@@ -37,27 +25,11 @@ private final class ThemeWatcher: ObservableObject {
     private var scriptArgsLight: String {
         UserDefaults.standard.string(forKey: DefaultsKeys.lightArgs) ?? ""
     }
-    private var lastIsDark: Bool? {
-        get {
-            guard UserDefaults.standard.object(forKey: DefaultsKeys.lastIsDark) != nil else { return nil }
-            return UserDefaults.standard.bool(forKey: DefaultsKeys.lastIsDark)
-        }
-        set {
-            if let newValue {
-                UserDefaults.standard.set(newValue, forKey: DefaultsKeys.lastIsDark)
-            } else {
-                UserDefaults.standard.removeObject(forKey: DefaultsKeys.lastIsDark)
-            }
-        }
-    }
 
     func start() {
         let isDark = isDarkMode()
         onModeChange?(isDark)
-        if lastIsDark != isDark {
-            lastIsDark = isDark
-            runForMode(isDark: isDark)
-        }
+        scheduler.start(isDark: isDark)
 
         observer = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
@@ -77,38 +49,11 @@ private final class ThemeWatcher: ObservableObject {
     private func updateAndRunIfNeeded() {
         let isDark = isDarkMode()
         onModeChange?(isDark)
-        if lastIsDark == isDark { return }
-
-        lastIsDark = isDark
-        runForMode(isDark: isDark)
+        scheduler.themeDidChange(isDark: isDark)
     }
 
     func runForMode(isDark: Bool) {
-        stateLock.lock()
-        pendingMode = isDark
-        let shouldStart = !isExecuting
-        if shouldStart { isExecuting = true }
-        stateLock.unlock()
-
-        guard shouldStart else { return }
-
-        executionQueue.async { [weak self] in
-            guard let self else { return }
-            while let isDark = self.takePendingMode() {
-                self.executeScript(isDark: isDark)
-            }
-        }
-    }
-
-    private func takePendingMode() -> Bool? {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard let isDark = pendingMode else {
-            isExecuting = false
-            return nil
-        }
-        pendingMode = nil
-        return isDark
+        scheduler.runManually(isDark: isDark)
     }
 
     private func isDarkMode() -> Bool {
@@ -119,7 +64,7 @@ private final class ThemeWatcher: ObservableObject {
 
     private func executeScript(isDark: Bool) {
         let path = (isDark ? scriptPathDark : scriptPathLight).trimmingCharacters(in: .whitespacesAndNewlines)
-        let args = (isDark ? scriptArgsDark : scriptArgsLight).trimmingCharacters(in: .whitespacesAndNewlines)
+        let args = isDark ? scriptArgsDark : scriptArgsLight
 
         guard !path.isEmpty else {
             logger.debug("No script path configured for \(isDark ? "dark" : "light") mode")

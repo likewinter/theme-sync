@@ -9,6 +9,7 @@ A tiny menu bar app that runs shell scripts when macOS switches between Light an
 - Optional command-line arguments for each script
 - Sets `THEME_MODE=dark` or `THEME_MODE=light` environment variable for scripts
 - Remembers the last theme state — scripts only run on actual changes, not on every app launch
+- Recovers unfinished theme changes on the next launch
 - Menu bar icon reflects the current mode (☀️ / 🌙)
 - "Run Dark Script" / "Run Light Script" menu items for quick testing
 - Optional Launch at Login
@@ -48,7 +49,7 @@ This creates `build/ThemeSync.app`. The bundle is stamped with the latest git ta
 make release VERSION=1.1.0
 ```
 
-This tags `v1.1.0` and pushes the tag, which triggers a GitHub Actions workflow that builds the app and publishes a release.
+An explicit `VERSION` is required. This tags `v1.1.0` and pushes the tag, which triggers a GitHub Actions workflow that builds the app and publishes a release.
 
 ## Notes
 
@@ -56,6 +57,7 @@ This tags `v1.1.0` and pushes the tag, which triggers a GitHub Actions workflow 
 - Scripts receive `THEME_MODE=dark` or `THEME_MODE=light` as an environment variable
 - Arguments support whitespace splitting, quoted values, and backslash escaping; shell expansion and command chaining are not evaluated
 - Scripts must be executable (`chmod +x your_script.sh`)
+- If the app quits with an automatic theme change queued or running, it runs the current mode's script again on the next launch
 - Script execution times out after 30 seconds for safety; the timeout terminates the script and any processes it started
 - The app validates script paths and logs errors if scripts are missing or not executable
 - The app is a menu bar accessory and will not show in the Dock

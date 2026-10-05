@@ -120,8 +120,19 @@ struct ScriptRunner {
             kill(-pid, SIGTERM)
             kill(pid, SIGTERM)
 
-            if completion.wait(timeout: .now() + 1) == .timedOut {
-                kill(-pid, SIGKILL)
+            let graceDeadline = DispatchTime.now() + 1
+            let parentExited = completion.wait(timeout: graceDeadline) == .success
+            if parentExited {
+                // The parent may exit before descendants finish their cleanup.
+                // Give the remaining group the same grace period.
+                while kill(-pid, 0) == 0 && DispatchTime.now() < graceDeadline {
+                    Thread.sleep(forTimeInterval: 0.01)
+                }
+            }
+
+            // Escalate the group even when the direct child already exited.
+            kill(-pid, SIGKILL)
+            if !parentExited {
                 kill(pid, SIGKILL)
                 completion.wait()
             }

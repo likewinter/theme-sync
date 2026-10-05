@@ -9,7 +9,7 @@ ICONSET_DIR = $(BUILD_DIR)/AppIcon.iconset
 ICON_ICNS = $(BUILD_DIR)/ThemeSync.icns
 
 GIT_VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
-VERSION ?= $(if $(GIT_VERSION),$(GIT_VERSION),0.0.0)
+BUILD_VERSION = $(if $(strip $(VERSION)),$(VERSION),$(if $(GIT_VERSION),$(GIT_VERSION),0.0.0))
 
 SDK_PATH := $(shell xcrun --sdk macosx --show-sdk-path)
 
@@ -26,15 +26,16 @@ app: icon
 		-framework AppKit \
 		-o $(APP_BIN) \
 		Sources/$(APP_NAME)/ScriptRunner.swift \
+		Sources/$(APP_NAME)/ThemeScriptScheduler.swift \
 		Sources/$(APP_NAME)/main.swift
 	@mkdir -p $(APP_DIR)/Contents/MacOS
 	@cp $(APP_BIN) $(APP_DIR)/Contents/MacOS/$(APP_NAME)
 	@mkdir -p $(APP_DIR)/Contents/Resources
 	@cp $(ICON_ICNS) $(APP_DIR)/Contents/Resources/ThemeSync.icns
 	@cp Resources/Info.plist $(APP_DIR)/Contents/Info.plist
-	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" $(APP_DIR)/Contents/Info.plist
-	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" $(APP_DIR)/Contents/Info.plist
-	@echo "Built $(APP_DIR) (version $(VERSION))"
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(BUILD_VERSION)" $(APP_DIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(BUILD_VERSION)" $(APP_DIR)/Contents/Info.plist
+	@echo "Built $(APP_DIR) (version $(BUILD_VERSION))"
 
 icon:
 	@mkdir -p $(BUILD_DIR) $(ICONSET_DIR)
@@ -51,6 +52,8 @@ test:
 		-module-cache-path $(MODULE_CACHE) \
 		-o $(BUILD_DIR)/ThemeSyncTests \
 		Sources/$(APP_NAME)/ScriptRunner.swift \
+		Sources/$(APP_NAME)/ThemeScriptScheduler.swift \
+		Tests/ThemeSyncTests/ThemeScriptSchedulerTests.swift \
 		Tests/ThemeSyncTests/ScriptRunnerTests.swift
 	@$(BUILD_DIR)/ThemeSyncTests
 
@@ -58,6 +61,6 @@ clean:
 	@rm -rf $(BUILD_DIR)
 
 release:
-	@if [ -z "$(VERSION)" ]; then echo "Usage: make release VERSION=1.1.0"; exit 1; fi
+	@if [ -z "$(strip $(VERSION))" ]; then echo "Usage: make release VERSION=1.1.0"; exit 1; fi
 	@git tag v$(VERSION)
 	@git push origin v$(VERSION)
